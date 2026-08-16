@@ -42,7 +42,7 @@ The scale is: trash (nonsenset, degenerate or littered with fireflies), mediocre
 
 ## 12 seconds too slow for your liking?
 
-Original aim was 10 seconds. But considering that no other algorithm could make renders of desirable quality in this time, `faith` integrator is clearly the best we have, even if it's taking 12 seconds. Moreover, there are potentially many improvements that can be made (parallelizing the path tracing step, VCM), so expect it to get faster. It also works really well even with very little iterations. The algorithm converges really quickly, and at >32 iters only sees marginal improvements.
+Original aim was 10 seconds. But considering that no other algorithm could make renders of desirable quality in this time, `faith` integrator is clearly the best we have, even if it's taking 12 seconds. Moreover, there are potentially many improvements that can be made, as current implementation is correctness-first. It also works really well even with very little iterations. The algorithm converges really quickly, and at >32 iters only sees marginal improvements.
 
 16 iters usually gets great quality at mesely 5 seconds, and 8 iters can be perfectly acceptable if fed through a denoiser.
 
