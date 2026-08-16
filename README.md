@@ -72,7 +72,9 @@ Primary failure mode of `faith` is when pixels cannot get any visible points dep
 
 While this is a super tiny weekend project, I still feel obliged to express the gratitude to the giants on whose shoulders I stand.
 
-I thank the creators of Mitsuba 3 and DrJIT for creating such an amazing renderer, and especially DrJIT, which is the allowing technology for `faith`.:
+Of course, I thank my supervisor and colleagues for their support, and their honesty that pushed me to write this renderer. While I began doing it as a petty act, I learned that renderers are actually super cool on the way, and at the end of the day, it's always good to find yourself writing something cool. Morale of the team had to be improved somehow :).
+
+I thank the creators of Mitsuba 3 and DrJIT for creating such an amazing renderer, and especially DrJIT, which is the allowing technology for `faith`. I mean, my rendering thingy is barely above noise compared to their projects.
 
 > \[Mitsuba 3\] was created by Wenzel Jakob. Significant features and/or improvements to the code were contributed by Sébastien Speierer, Nicolas Roussel, Merlin Nimier-David, Delio Vicini, Tizian Zeltner, Baptiste Nicolet, Miguel Crespo, Vincent Leroy, and Ziyi Zhang.
 
