@@ -1,11 +1,7 @@
 [project]
-name = "mitsuba-alchemy"
+name = "faith"
 version = "0.1.0"
-description = "Add your description here"
+description = "faith: hopes and dreams integrator"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = [
-    "ipython>=9.16.1",
-    "mitsuba>=3.9.1",
-    "numpy>=2.5.2",
-]
+dependencies = ["ipython>=9.16.1", "mitsuba>=3.9.1", "numpy>=2.5.2"]
