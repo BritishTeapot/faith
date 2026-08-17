@@ -267,8 +267,12 @@ def photon_pass(iteration, b, s_pos, s_nrm, s_pix, s_rad, M):
             mi.UInt32(mi.Int32(pcz) + dz),
         )
 
-        lo = dr.binary_search(0, M, lambda idx: dr.gather(mi.UInt32, b, idx) < nb)
-        hi = dr.binary_search(0, M, lambda idx: dr.gather(mi.UInt32, b, idx) <= nb)
+        lo = dr.binary_search(
+            0, M, lambda idx: dr.gather(mi.UInt32, b, idx, active=idx < M) < nb
+        )
+        hi = dr.binary_search(
+            0, M, lambda idx: dr.gather(mi.UInt32, b, idx, active=idx < M) <= nb
+        )
 
         def body(idx):
             active = idx < hi
@@ -331,7 +335,7 @@ for iteration in range(num_iterations):
     print("phase1")
     # Phase 1 — refresh visible points
     vp_pos, vp_nrm, vp_valid, vp_albedo = camera_pass()
-    # dr.eval(vp_pos, vp_nrm, vp_valid)
+    dr.eval(vp_pos, vp_nrm, vp_valid)
 
     dr.print("phase2")
     # Phase 2 — rebuild the grid (visible points moved)
@@ -343,7 +347,7 @@ for iteration in range(num_iterations):
     dr.print("phase3")
     # Phase 3 — scatter this iteration's photons into the pixels
     K = photon_pass(iteration, b, s_pos, s_nrm, s_pix, s_rad, M)
-    # dr.eval(vp_flux, vp_cnt)
+    dr.eval(vp_flux, vp_cnt)
 
     # scale = dr.max(vp_cnt)
     # mi.Bitmap(to_img_rgb(mi.Color3f(mi.Float(vp_cnt))) * 4 / scale).write("dbg_cnt.exr")
