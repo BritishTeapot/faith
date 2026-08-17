@@ -67,10 +67,14 @@ vp_cnt = dr.zeros(mi.Float, N)
 vp_rad = dr.full(mi.Float, initial_radius, N)
 # does this pixel have a visible point? (???, probably for points that did not arrive at diffuse)
 vp_valid = dr.zeros(mi.Bool, N)
-# ???
+# photons deposited this pass (per pixel, reset each iteration)
 vp_pass = dr.zeros(mi.UInt32, N)
-# ???
+# diffuse reflectance (albedo) at the visible point
 vp_albedo = dr.zeros(mi.Color3f, N)
+# specular throughput along the camera path up to the visible point;
+# weights this iteration's photon deposits so each pass is weighted by
+# its own camera path (not the final one)
+vp_throughput = dr.zeros(mi.Color3f, N)
 
 
 # ============================================================
@@ -102,8 +106,10 @@ def camera_pass():
     hit_diffuse = mi.Bool(False)
     # bounce count
     i = mi.UInt32(0)
-    # diffuse reflectance at the vp, pre-multiplied by specular throughput
+    # diffuse reflectance (albedo) at the vp, and the specular throughput
+    # accumulated along the camera path up to that point
     albedo_vp = mi.Color3f(0.0)
+    throughput_vp = mi.Color3f(0.0)
     throughput = mi.Color3f(1.0)
 
     while valid & (i < max_bounces):
@@ -114,8 +120,9 @@ def camera_pass():
         hit_diffuse = hit_diffuse | rec
         si_vp = dr.select(rec, si, si_vp)
         albedo_vp = dr.select(
-            rec, throughput * bsdf.eval_diffuse_reflectance(si, active=rec), albedo_vp
+            rec, bsdf.eval_diffuse_reflectance(si, active=rec), albedo_vp
         )
+        throughput_vp = dr.select(rec, throughput, throughput_vp)
 
         active = valid & ~is_diffuse & (i < max_bounces - 1)
         bs, val = bsdf.sample(
@@ -131,7 +138,8 @@ def camera_pass():
         dr.select(hit_diffuse, si_vp.p, mi.Point3f(dr.inf)),
         dr.select(hit_diffuse, si_vp.n, mi.Normal3f(0)),
         hit_diffuse,
-        dr.select(hit_diffuse, albedo_vp, mi.Color3f(0.0)),  # NEW
+        dr.select(hit_diffuse, albedo_vp, mi.Color3f(0.0)),
+        dr.select(hit_diffuse, throughput_vp, mi.Color3f(0.0)),
     )
 
 
@@ -279,11 +287,14 @@ def photon_pass(iteration, b, s_pos, s_nrm, s_pix, s_rad, M):
             c_pos = dr.gather(mi.Point3f, s_pos, idx, active)
             c_rad = dr.gather(mi.Float, s_rad, idx, active)
             c_pix = dr.gather(mi.UInt32, s_pix, idx, active)
+            # weight this photon's flux by the visible point's specular
+            # throughput, so each pass is weighted by its own camera path
+            c_tp = dr.gather(mi.Color3f, vp_throughput, c_pix, active)
 
             d2 = dr.squared_norm(c_pos - ph_pos)
             hit = active & (d2 <= c_rad * c_rad)
 
-            dr.scatter_add(vp_flux, ph_flux / photons_per_pass, c_pix, hit)
+            dr.scatter_add(vp_flux, c_tp * ph_flux / photons_per_pass, c_pix, hit)
             dr.scatter_add(vp_pass, mi.UInt32(1), c_pix, hit)
             return (idx + 1,)
 
@@ -334,8 +345,8 @@ print("mainloop")
 for iteration in range(num_iterations):
     print("phase1")
     # Phase 1 — refresh visible points
-    vp_pos, vp_nrm, vp_valid, vp_albedo = camera_pass()
-    dr.eval(vp_pos, vp_nrm, vp_valid)
+    vp_pos, vp_nrm, vp_valid, vp_albedo, vp_throughput = camera_pass()
+    dr.eval(vp_pos, vp_nrm, vp_valid, vp_throughput)
 
     dr.print("phase2")
     # Phase 2 — rebuild the grid (visible points moved)
@@ -372,6 +383,8 @@ for iteration in range(num_iterations):
 # ============================================================
 #  FINAL IMAGE  (radiance estimate: flux / disk area)
 # ============================================================
+# vp_flux is now throughput-weighted per pass; vp_albedo is the diffuse
+# reflectance rho_d = pi * f_r, hence the pi^2 in the denominator.
 radiance = vp_flux * vp_albedo / (dr.pi * dr.pi * vp_rad * vp_rad * num_iterations)
 # radiance = vp_flux / (dr.pi * vp_rad * vp_rad * photons_per_pass)
 # radiance = dr.linear_to_srgb(radiance / (1.0 + radiance))
