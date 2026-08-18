@@ -203,6 +203,7 @@ def photon_pass(iteration, b, s_pos, s_nrm, s_pix, s_rad, M):
     # (survival probability = mean diffuse reflectance), so indirect
     # illumination is captured without exploding the path count.
     rec_pos = []
+    rec_nrm = []
     rec_flux = []
     rec_hit = []
 
@@ -216,6 +217,7 @@ def photon_pass(iteration, b, s_pos, s_nrm, s_pix, s_rad, M):
         # Record the photon *before* scattering this surface (arriving flux).
         rec = alive & is_diffuse
         rec_pos.append(dr.select(rec, si.p, mi.Point3f(0.0)))
+        rec_nrm.append(dr.select(rec, si.n, mi.Normal3f(0.0)))
         rec_flux.append(dr.select(rec, ph_flux, mi.Color3f(0.0)))
         rec_hit.append(rec)
 
@@ -244,6 +246,7 @@ def photon_pass(iteration, b, s_pos, s_nrm, s_pix, s_rad, M):
     # Flatten the per-bounce records, then compact the valid ones.
     total = photons_per_pass * max_bounces
     flat_pos = dr.zeros(mi.Point3f, total)
+    flat_nrm = dr.zeros(mi.Normal3f, total)
     flat_flux = dr.zeros(mi.Color3f, total)
     flat_hit = dr.zeros(mi.Bool, total)
 
@@ -252,11 +255,13 @@ def photon_pass(iteration, b, s_pos, s_nrm, s_pix, s_rad, M):
             mi.UInt32, photons_per_pass
         )
         dr.scatter(flat_pos, rec_pos[bounce], idx)
+        dr.scatter(flat_nrm, rec_nrm[bounce], idx)
         dr.scatter(flat_flux, rec_flux[bounce], idx)
         dr.scatter(flat_hit, rec_hit[bounce], idx)
 
     hit_idx = dr.compress(flat_hit)
     ph_pos = dr.gather(mi.Point3f, flat_pos, hit_idx)
+    ph_nrm = dr.gather(mi.Normal3f, flat_nrm, hit_idx)
     ph_flux = dr.gather(mi.Color3f, flat_flux, hit_idx)
     K = dr.width(ph_pos)
 
@@ -285,16 +290,28 @@ def photon_pass(iteration, b, s_pos, s_nrm, s_pix, s_rad, M):
         def body(idx):
             active = idx < hi
             c_pos = dr.gather(mi.Point3f, s_pos, idx, active)
+            c_nrm = dr.gather(mi.Normal3f, s_nrm, idx, active)
             c_rad = dr.gather(mi.Float, s_rad, idx, active)
             c_pix = dr.gather(mi.UInt32, s_pix, idx, active)
             # weight this photon's flux by the visible point's specular
             # throughput, so each pass is weighted by its own camera path
             c_tp = dr.gather(mi.Color3f, vp_throughput, c_pix, active)
+            # diffuse reflectance rho_d at the visible point: f_r = rho_d / pi.
+            # We deposit rho_d here and the 1/pi is folded into the pi^2 of
+            # the final radiance estimate (one pi for the disk area, one for
+            # the Lambertian BRDF).
+            c_alb = dr.gather(mi.Color3f, vp_albedo, c_pix, active)
 
             d2 = dr.squared_norm(c_pos - ph_pos)
-            hit = active & (d2 <= c_rad * c_rad)
+            # normal-based rejection: only accept photons on the same side of
+            # the surface as the visible point, which stops light from leaking
+            # through thin geometry (opposite faces have opposite normals)
+            same_side = dr.dot(c_nrm, ph_nrm) > 0
+            hit = active & (d2 <= c_rad * c_rad) & same_side
 
-            dr.scatter_add(vp_flux, c_tp * ph_flux / photons_per_pass, c_pix, hit)
+            dr.scatter_add(
+                vp_flux, c_tp * c_alb * ph_flux / photons_per_pass, c_pix, hit
+            )
             dr.scatter_add(vp_pass, mi.UInt32(1), c_pix, hit)
             return (idx + 1,)
 
@@ -385,7 +402,7 @@ for iteration in range(num_iterations):
 # ============================================================
 # vp_flux is now throughput-weighted per pass; vp_albedo is the diffuse
 # reflectance rho_d = pi * f_r, hence the pi^2 in the denominator.
-radiance = vp_flux * vp_albedo / (dr.pi * dr.pi * vp_rad * vp_rad * num_iterations)
+radiance = vp_flux / (dr.pi * dr.pi * vp_rad * vp_rad * num_iterations)
 # radiance = vp_flux / (dr.pi * vp_rad * vp_rad * photons_per_pass)
 # radiance = dr.linear_to_srgb(radiance / (1.0 + radiance))
 # radiance /= dr.max(dr.max(radiance))
@@ -393,7 +410,7 @@ radiance = vp_flux * vp_albedo / (dr.pi * dr.pi * vp_rad * vp_rad * num_iteratio
 # radiance = dr.select(vp_valid, radiance, mi.Color3f(0.0))
 
 
-display = dr.linear_to_srgb(radiance / (1.0 + radiance))
+display = radiance  # dr.linear_to_srgb(radiance / (1.0 + radiance))
 
 print("denoiser")
 
