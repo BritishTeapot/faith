@@ -46,6 +46,26 @@ P1, P2, P3 = 73856093, 19349663, 83492791
 
 ph_sampler = mi.load_dict({"type": "independent"})
 
+# environment emitter (None if the scene has none)
+env_emitter = scene.environment()
+
+
+def eval_emission(si, ray, observed):
+    """Radiance emitted toward the camera along -ray.d for newly observed
+    ray results: self-emission Le at surface hits, environment radiance
+    on misses. `observed` masks lanes whose ray result is new this bounce.
+    """
+    hit = observed & si.is_valid()
+    le = dr.select(hit, si.emitter(scene).eval(si, active=hit), mi.Color3f(0.0))
+    if env_emitter is not None:
+        miss = observed & ~si.is_valid()
+        # env emitters evaluate a SurfaceInteraction with wi = -ray.d
+        si_env = dr.zeros(mi.SurfaceInteraction3f, dr.width(ray))
+        si_env.wi = -ray.d
+        le += dr.select(miss, env_emitter.eval(si_env, active=miss), mi.Color3f(0.0))
+    return le
+
+
 # ============================================================
 #  PERSISTENT PER-PIXEL STATE  (lives across ALL iterations)
 # ============================================================
@@ -75,6 +95,10 @@ vp_albedo = dr.zeros(mi.Color3f, N)
 # weights this iteration's photon deposits so each pass is weighted by
 # its own camera path (not the final one)
 vp_throughput = dr.zeros(mi.Color3f, N)
+# emitted/environment radiance seen along the camera path, accumulated
+# across iterations (PBRT's Ld / Mitsuba's gp.emission term); averaged
+# by num_iterations in the final estimate
+vp_emission = dr.zeros(mi.Color3f, N)
 
 
 # ============================================================
@@ -101,6 +125,9 @@ def camera_pass():
     si = scene.ray_intersect(ray)
     # what does this validate?
     valid = si.is_valid()
+    # emitted/environment radiance along the camera path (throughput is 1
+    # for the primary ray); accumulated per pass, weighted by throughput
+    emission = eval_emission(si, ray, mi.Bool(True))
     # ???
     si_vp = si
     hit_diffuse = mi.Bool(False)
@@ -131,6 +158,9 @@ def camera_pass():
         throughput = dr.select(active, throughput * val, throughput)
         ray = si.spawn_ray(si.to_world(bs.wo))
         si = scene.ray_intersect(ray, active)
+        # emission at newly observed hits/escapes, weighted by the
+        # throughput of the path up to the previous surface
+        emission += throughput * eval_emission(si, ray, active)
         valid = active & si.is_valid()
         i += 1
 
@@ -140,6 +170,9 @@ def camera_pass():
         hit_diffuse,
         dr.select(hit_diffuse, albedo_vp, mi.Color3f(0.0)),
         dr.select(hit_diffuse, throughput_vp, mi.Color3f(0.0)),
+        # NOT masked by hit_diffuse: pixels without a visible point still
+        # keep the emission seen along their camera path (PBRT does the same)
+        emission,
     )
 
 
@@ -362,8 +395,9 @@ print("mainloop")
 for iteration in range(num_iterations):
     print("phase1")
     # Phase 1 — refresh visible points
-    vp_pos, vp_nrm, vp_valid, vp_albedo, vp_throughput = camera_pass()
-    dr.eval(vp_pos, vp_nrm, vp_valid, vp_throughput)
+    vp_pos, vp_nrm, vp_valid, vp_albedo, vp_throughput, pass_emission = camera_pass()
+    vp_emission += pass_emission
+    dr.eval(vp_pos, vp_nrm, vp_valid, vp_throughput, vp_emission)
 
     dr.print("phase2")
     # Phase 2 — rebuild the grid (visible points moved)
@@ -400,9 +434,11 @@ for iteration in range(num_iterations):
 # ============================================================
 #  FINAL IMAGE  (radiance estimate: flux / disk area)
 # ============================================================
-# vp_flux is now throughput-weighted per pass; vp_albedo is the diffuse
-# reflectance rho_d = pi * f_r, hence the pi^2 in the denominator.
-radiance = vp_flux / (dr.pi * dr.pi * vp_rad * vp_rad * num_iterations)
+# PBRT-style final estimate: L = Ld / i + tau / (N_total * pi * R^2).
+# vp_emission is the sum of per-pass camera-path emission (Ld); vp_flux is
+# SPPM's tau with the per-pass 1/photons_per_pass already folded in, and
+# rho_d = pi * f_r deposited per pass, hence the pi^2 (disk area * BRDF).
+radiance = (vp_emission + vp_flux / (dr.pi * dr.pi * vp_rad * vp_rad)) / num_iterations
 # radiance = vp_flux / (dr.pi * vp_rad * vp_rad * photons_per_pass)
 # radiance = dr.linear_to_srgb(radiance / (1.0 + radiance))
 # radiance /= dr.max(dr.max(radiance))
