@@ -66,6 +66,28 @@ def eval_emission(si, ray, observed):
     return le
 
 
+def mis_weight(pdf_a, pdf_b):
+    """Power heuristic (Veach) for one-sample MIS."""
+    a2 = pdf_a * pdf_a
+    b2 = pdf_b * pdf_b
+    w = a2 / (a2 + b2)
+    return dr.select(dr.isfinite(w), w, mi.Float(0.0))
+
+
+def nee(si, active):
+    """Next-event estimation: one-sample direct lighting at `si`, with
+    power-heuristic MIS between emitter-direction sampling and the BSDF pdf
+    (PBRT's UniformSampleOneLight). Returns incident radiance at the vertex;
+    the caller multiplies by the path throughput.
+    """
+    ds, em_weight = scene.sample_emitter_direction(si, sampler.next_2d(), True, active)
+    active_em = active & (ds.pdf > 0)
+    wo = si.to_local(ds.d)
+    bsdf_val, bsdf_pdf = si.bsdf().eval_pdf(mi.BSDFContext(), si, wo, active_em)
+    mis = dr.select(ds.delta, mi.Float(1.0), mis_weight(ds.pdf, bsdf_pdf))
+    return dr.select(active_em, bsdf_val * em_weight * mis, mi.Color3f(0.0))
+
+
 # ============================================================
 #  PERSISTENT PER-PIXEL STATE  (lives across ALL iterations)
 # ============================================================
@@ -140,6 +162,11 @@ def camera_pass():
     throughput = mi.Color3f(1.0)
 
     while valid & (i < max_bounces):
+        # NEE at EVERY vertex (diffuse or glossy): this is what gives glossy
+        # surfaces their specular highlights, instead of relying on BSDF
+        # samples randomly hitting an emitter (PBRT-v3 sppm.cpp does the same)
+        emission += throughput * nee(si, valid)
+
         bsdf = si.bsdf()
         is_diffuse = mi.has_flag(bsdf.flags(), mi.BSDFFlags.Diffuse)
 
@@ -156,11 +183,16 @@ def camera_pass():
             mi.BSDFContext(), si, sampler.next_1d(), sampler.next_2d(), active
         )
         throughput = dr.select(active, throughput * val, throughput)
+        # emission guard (PBRT: `depth == 0 || specularBounce`): only paths
+        # sampled through a DELTA component may pick up emission by hitting
+        # an emitter. Non-delta direct light is already covered by NEE above,
+        # so adding it here too would double-count area/environment lights.
+        specular_bounce = active & mi.has_flag(bs.sampled_type, mi.BSDFFlags.Delta)
         ray = si.spawn_ray(si.to_world(bs.wo))
         si = scene.ray_intersect(ray, active)
         # emission at newly observed hits/escapes, weighted by the
         # throughput of the path up to the previous surface
-        emission += throughput * eval_emission(si, ray, active)
+        emission += throughput * eval_emission(si, ray, specular_bounce)
         valid = active & si.is_valid()
         i += 1
 
@@ -248,7 +280,10 @@ def photon_pass(iteration, b, s_pos, s_nrm, s_pix, s_rad, M):
         is_diffuse = mi.has_flag(bsdf.flags(), mi.BSDFFlags.Diffuse)
 
         # Record the photon *before* scattering this surface (arriving flux).
-        rec = alive & is_diffuse
+        # bounce == 0 is direct lighting, which NEE on the camera side now
+        # covers -- depositing it here as well would double-count (PBRT-v3
+        # likewise only deposits photons at depth > 0).
+        rec = alive & is_diffuse & mi.Bool(bounce > 0)
         rec_pos.append(dr.select(rec, si.p, mi.Point3f(0.0)))
         rec_nrm.append(dr.select(rec, si.n, mi.Normal3f(0.0)))
         rec_flux.append(dr.select(rec, ph_flux, mi.Color3f(0.0)))
