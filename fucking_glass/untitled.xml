@@ -1,0 +1,84 @@
+<scene version="2.1.0">
+
+  <!-- Defaults, these can be set via the command line: -Darg=value -->
+
+  <default name="spp" value="4096" />
+  <default name="resx" value="1920" />
+  <default name="resy" value="1080" />
+
+  <!-- Camera and Rendering Parameters -->
+
+  <integrator type="path" id="elm__0" name="elm__0">
+    <integer name="max_depth" value="12" />
+  </integrator>
+  <sensor type="perspective" id="elm__1" name="elm__1">
+    <string name="fov_axis" value="x" />
+    <float name="fov" value="39.597755" />
+    <float name="principal_point_offset_x" value="0.000000" />
+    <float name="principal_point_offset_y" value="-0.000000" />
+    <float name="near_clip" value="0.100000" />
+    <float name="far_clip" value="100.000000" />
+    <transform name="to_world">
+      <rotate x="1" angle="-153.5592908827048" />
+      <rotate y="1" angle="-46.691938147394204" />
+      <rotate z="1" angle="-179.999991348578" />
+      <translate value="7.358891 4.958309 6.925791" />
+    </transform>
+    <sampler type="orthogonal" name="sampler">
+      <integer name="sample_count" value="$spp" />
+    </sampler>
+    <film type="hdrfilm" name="film">
+      <integer name="width" value="$resx" />
+      <integer name="height" value="$resy" />
+    </film>
+  </sensor>
+
+  <!-- Materials -->
+
+  <bsdf type="twosided" id="default-bsdf" name="default-bsdf">
+    <bsdf type="diffuse" name="bsdf" />
+  </bsdf>
+  <bsdf type="roughdielectric" id="mat-Material_001" name="mat-Material_001">
+    <float name="alpha" value="0.002" />
+    <string name="int_ior" value="bk7" />
+    <string name="ext_ior" value="air" />
+  </bsdf>
+
+  <!-- Emitters -->
+
+  <emitter type="spot" id="elm__8" name="elm__8">
+    <rgb value="100 100 100" name="intensity" />
+    <float name="cutoff_angle" value="10.094053" />
+    <float name="beam_width" value="10.094053" />
+    <transform name="to_world">
+      <matrix
+        value="0.893717 0.257087 -0.367663 4.946671 0.000000 -0.819522 -0.573048 4.952361 -0.448631 0.512143 -0.732420 6.865610 0.000000 0.000000 0.000000 1.000000" />
+    </transform>
+  </emitter>
+
+  <!-- Shapes -->
+
+  <shape type="ply" id="elm__3" name="elm__3">
+    <string name="filename" value="meshes/Plane.ply" />
+    <boolean name="face_normals" value="true" />
+    <ref id="default-bsdf" name="bsdf" />
+  </shape>
+  <shape type="ply" id="elm__4" name="elm__4">
+    <string name="filename" value="meshes/Plane_001.ply" />
+    <boolean name="face_normals" value="true" />
+    <ref id="default-bsdf" name="bsdf" />
+  </shape>
+  <shape type="ply" id="elm__5" name="elm__5">
+    <string name="filename" value="meshes/Plane_002.ply" />
+    <boolean name="face_normals" value="true" />
+    <ref id="default-bsdf" name="bsdf" />
+  </shape>
+  <shape type="ply" id="elm__7" name="elm__7">
+    <string name="filename" value="meshes/Cylinder.ply" />
+    <boolean name="face_normals" value="true" />
+    <ref id="mat-Material_001" name="bsdf" />
+  </shape>
+
+  <!-- Volumes -->
+
+</scene>
